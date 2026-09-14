@@ -5,6 +5,10 @@ import '../widgets/chess_board.dart';
 import '../models/game.dart';
 import '../services/games_store.dart';
 
+String _squareName(int row, int col) {
+  return String.fromCharCode(97 + col) + (8 - row).toString();
+}
+
 class GamesScreen extends StatefulWidget {
   const GamesScreen({super.key});
 
@@ -22,6 +26,8 @@ class _GamesScreenState extends State<GamesScreen> {
   double _squareSize = 40;
   bool _isMaximized = false;
   bool _loading = true;
+  String? _lastMoveFrom;
+  String? _lastMoveTo;
 
   @override
   void initState() {
@@ -48,7 +54,7 @@ class _GamesScreenState extends State<GamesScreen> {
       for (int c = 0; c < 8; c++) {
         final piece = board[r][c];
         if (piece != null) {
-          final square = _engine.getSquareName(r, c);
+          final square = _squareName(r, c);
           final color = piece.color == chess.Color.WHITE ? 'w' : 'b';
           final type = piece.type.name.toUpperCase();
           pieces[square] = '$color$type';
@@ -67,7 +73,7 @@ class _GamesScreenState extends State<GamesScreen> {
         if (piece != null &&
             piece.type == chess.PieceType.KING &&
             piece.color == _engine.turn) {
-          return _engine.getSquareName(r, c);
+          return _squareName(r, c);
         }
       }
     }
@@ -84,6 +90,8 @@ class _GamesScreenState extends State<GamesScreen> {
     _currentGame = game;
     _engine = chess.Chess();
     _moveIndex = 0;
+    _lastMoveFrom = null;
+    _lastMoveTo = null;
 
     setState(() {});
     _gotoMove(0);
@@ -95,10 +103,16 @@ class _GamesScreenState extends State<GamesScreen> {
 
     _engine = chess.Chess();
     _moveIndex = 0;
+    _lastMoveFrom = null;
+    _lastMoveTo = null;
 
     for (int i = 0; i < idx; i++) {
       try {
-        _engine.move(_currentGame!.moves[i].san);
+        final mv = _engine.move(_currentGame!.moves[i].san);
+        if (mv != null) {
+          _lastMoveFrom = mv.from;
+          _lastMoveTo = mv.to;
+        }
       } catch (_) {}
     }
 
@@ -165,7 +179,6 @@ class _GamesScreenState extends State<GamesScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // Top bar
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: Row(
@@ -213,38 +226,28 @@ class _GamesScreenState extends State<GamesScreen> {
                 ],
               ),
             ),
-            // Player top
             _PlayerLine(
               name: bottomIsWhite ? game.black : game.white,
               elo: bottomIsWhite ? game.blackElo : game.whiteElo,
               colorCode: bottomIsWhite ? 'b' : 'w',
               squareSize: _squareSize,
             ),
-            // Board
             Center(
               child: ChessBoard(
                 pieces: _getPieces(),
                 orientation: bottomIsWhite ? 'white' : 'black',
-                lastMoveFrom:
-                    _engine.history.isNotEmpty
-                        ? _engine.history.last.from
-                        : null,
-                lastMoveTo:
-                    _engine.history.isNotEmpty
-                        ? _engine.history.last.to
-                        : null,
+                lastMoveFrom: _lastMoveFrom,
+                lastMoveTo: _lastMoveTo,
                 checkSquare: _getCheckSquare(),
                 squareSize: _squareSize,
               ),
             ),
-            // Player bottom
             _PlayerLine(
               name: bottomIsWhite ? game.white : game.black,
               elo: bottomIsWhite ? game.whiteElo : game.blackElo,
               colorCode: bottomIsWhite ? 'w' : 'b',
               squareSize: _squareSize,
             ),
-            // Move info
             Padding(
               padding: const EdgeInsets.only(top: 6),
               child: Text(
@@ -255,7 +258,6 @@ class _GamesScreenState extends State<GamesScreen> {
                 ),
               ),
             ),
-            // Calc line
             if (_getCalcLine().isNotEmpty)
               Padding(
                 padding:
@@ -270,7 +272,6 @@ class _GamesScreenState extends State<GamesScreen> {
                 ),
               ),
             const Spacer(),
-            // Controls
             Padding(
               padding: const EdgeInsets.only(bottom: 16),
               child: Row(

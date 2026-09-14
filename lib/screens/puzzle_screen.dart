@@ -3,7 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:chess/chess.dart' as chess;
 import '../widgets/chess_board.dart';
 import '../services/puzzle_store.dart';
-import '../utils/themes_es.dart';
+
+String _squareName(int row, int col) {
+  return String.fromCharCode(97 + col) + (8 - row).toString();
+}
 
 class PuzzleScreen extends StatefulWidget {
   const PuzzleScreen({super.key});
@@ -55,7 +58,7 @@ class _PuzzleScreenState extends State<PuzzleScreen> {
       for (int c = 0; c < 8; c++) {
         final piece = board[r][c];
         if (piece != null) {
-          final square = _engine.getSquareName(r, c);
+          final square = _squareName(r, c);
           final color = piece.color == chess.Color.WHITE ? 'w' : 'b';
           final type = piece.type.name.toUpperCase();
           pieces[square] = '$color$type';
@@ -63,14 +66,6 @@ class _PuzzleScreenState extends State<PuzzleScreen> {
       }
     }
     return pieces;
-  }
-
-  Set<String> _getLegalDots(String square) {
-    final moves = _engine.getLegalMoves(verbose: true);
-    return moves
-        .where((m) => m.from == square)
-        .map((m) => m.to as String)
-        .toSet();
   }
 
   String? _getCheckSquare() {
@@ -82,12 +77,15 @@ class _PuzzleScreenState extends State<PuzzleScreen> {
         if (piece != null &&
             piece.type == chess.PieceType.KING &&
             piece.color == _engine.turn) {
-          return _engine.getSquareName(r, c);
+          return _squareName(r, c);
         }
       }
     }
     return null;
   }
+
+  String? _lastMoveFrom;
+  String? _lastMoveTo;
 
   void _loadNextPuzzle() {
     _timer?.cancel();
@@ -97,6 +95,8 @@ class _PuzzleScreenState extends State<PuzzleScreen> {
       _isBusy = false;
       _lastResult = null;
       _hint = '';
+      _lastMoveFrom = null;
+      _lastMoveTo = null;
     });
 
     final result = _store.getNextPuzzle();
@@ -145,6 +145,10 @@ class _PuzzleScreenState extends State<PuzzleScreen> {
         'to': to,
         'promotion': promo,
       });
+      if (mv != null) {
+        _lastMoveFrom = from;
+        _lastMoveTo = to;
+      }
       return mv != null;
     } catch (_) {
       return false;
@@ -173,6 +177,8 @@ class _PuzzleScreenState extends State<PuzzleScreen> {
       if (mv == null) return;
 
       if (from == expFrom && to == expTo) {
+        _lastMoveFrom = from;
+        _lastMoveTo = to;
         _moveIndex++;
         setState(() {});
 
@@ -269,7 +275,6 @@ class _PuzzleScreenState extends State<PuzzleScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // Top bar
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: Row(
@@ -310,7 +315,6 @@ class _PuzzleScreenState extends State<PuzzleScreen> {
                     ),
                   ),
                   const Spacer(),
-                  // Timer
                   SizedBox(
                     width: 40,
                     height: 40,
@@ -343,27 +347,19 @@ class _PuzzleScreenState extends State<PuzzleScreen> {
                 ],
               ),
             ),
-            // Board
             Center(
               child: ChessBoard(
                 pieces: _getPieces(),
                 orientation: _orientation,
                 selectedSquare: null,
-                lastMoveFrom:
-                    _engine.history.isNotEmpty
-                        ? _engine.history.last.from
-                        : null,
-                lastMoveTo:
-                    _engine.history.isNotEmpty
-                        ? _engine.history.last.to
-                        : null,
+                lastMoveFrom: _lastMoveFrom,
+                lastMoveTo: _lastMoveTo,
                 checkSquare: _getCheckSquare(),
                 squareSize: _squareSize,
                 onSquareTap: (square) => _handleSquareTap(square),
               ),
             ),
             const SizedBox(height: 8),
-            // Hint
             Text(
               _hint.isNotEmpty
                   ? _hint
@@ -375,7 +371,6 @@ class _PuzzleScreenState extends State<PuzzleScreen> {
                 color: Color(0xFFa5a49f),
               ),
             ),
-            // Feedback
             if (_ended) ...[
               const SizedBox(height: 12),
               Container(
@@ -406,16 +401,6 @@ class _PuzzleScreenState extends State<PuzzleScreen> {
                         style: const TextStyle(
                           fontSize: 12,
                           color: Color(0xFFd8b45c),
-                        ),
-                      ),
-                    ],
-                    if (_solved && _lastResult != null) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        'Tu tiempo: ${(_lastResult!.nextDueInMs != null ? (_lastResult!.nextDueInMs! / 1000).toStringAsFixed(1) : '?')}s',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Color(0xFFa5a49f),
                         ),
                       ),
                     ],
@@ -452,7 +437,6 @@ class _PuzzleScreenState extends State<PuzzleScreen> {
               ),
             ],
             const Spacer(),
-            // Bottom controls
             Padding(
               padding: const EdgeInsets.all(8),
               child: Row(
@@ -485,17 +469,14 @@ class _PuzzleScreenState extends State<PuzzleScreen> {
     final piece = _engine.get(square);
     final turnColor = _engine.turn;
 
-    // Try to move if a piece is already selected via history
-    // For simplicity: tap two squares (from, to)
-    // We'll use a simple state approach
     if (piece != null && piece.color == turnColor) {
       _showMoveOptions(square);
     }
   }
 
   void _showMoveOptions(String fromSquare) {
-    final moves = _engine.getLegalMoves(verbose: true)
-        .where((m) => m.from == fromSquare)
+    final moves = _engine.getLegalMoves()
+        .where((m) => m.startsWith(fromSquare))
         .toList();
 
     if (moves.isEmpty) return;
@@ -520,10 +501,11 @@ class _PuzzleScreenState extends State<PuzzleScreen> {
               spacing: 8,
               runSpacing: 8,
               children: moves.map((m) {
+                final to = m.substring(2, 4);
                 return GestureDetector(
                   onTap: () {
                     Navigator.pop(ctx);
-                    _attemptUserMove(fromSquare, m.to as String);
+                    _attemptUserMove(fromSquare, to);
                   },
                   child: Container(
                     padding: const EdgeInsets.symmetric(
@@ -533,10 +515,10 @@ class _PuzzleScreenState extends State<PuzzleScreen> {
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
-                      '${m.san}',
+                      m,
                       style: const TextStyle(
                         color: Colors.white,
-                        fontSize: 16,
+                        fontSize: 14,
                       ),
                     ),
                   ),
