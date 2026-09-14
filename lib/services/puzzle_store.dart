@@ -172,7 +172,7 @@ class PuzzleStore {
       } else if (speedTier == 'normal') {
         easeDelta = 0.05;
       }
-      final ease = (_startEase + easeDelta).clamp(0, 3.2);
+      final ease = (_startEase + easeDelta).clamp(0.0, 3.2).toDouble();
       int intervalMs;
       if (reps == 1) {
         intervalMs = _learnStep1Ms;

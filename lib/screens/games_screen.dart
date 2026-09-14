@@ -5,8 +5,24 @@ import '../widgets/chess_board.dart';
 import '../models/game.dart';
 import '../services/games_store.dart';
 
-String _squareName(int row, int col) {
-  return String.fromCharCode(97 + col) + (8 - row).toString();
+Map<String, String> _buildPiecesMap(chess.Chess engine) {
+  final pieces = <String, String>{};
+  for (var i = 0; i < 128; i++) {
+    if ((i & 0x88) != 0) continue;
+    final piece = engine.board[i];
+    if (piece == null) continue;
+    final square = chess.Chess.algebraic(i);
+    final color = piece.color == chess.Color.WHITE ? 'w' : 'b';
+    final type = piece.type.name.toUpperCase();
+    pieces[square] = '$color$type';
+  }
+  return pieces;
+}
+
+String? _findKingSquare(chess.Chess engine, chess.Color color) {
+  final kingSq = engine.kings[color];
+  if (kingSq == -1) return null;
+  return chess.Chess.algebraic(kingSq);
 }
 
 class GamesScreen extends StatefulWidget {
@@ -47,37 +63,9 @@ class _GamesScreenState extends State<GamesScreen> {
     super.dispose();
   }
 
-  Map<String, String> _getPieces() {
-    final pieces = <String, String>{};
-    final board = _engine.board;
-    for (int r = 0; r < 8; r++) {
-      for (int c = 0; c < 8; c++) {
-        final piece = board[r][c];
-        if (piece != null) {
-          final square = _squareName(r, c);
-          final color = piece.color == chess.Color.WHITE ? 'w' : 'b';
-          final type = piece.type.name.toUpperCase();
-          pieces[square] = '$color$type';
-        }
-      }
-    }
-    return pieces;
-  }
-
   String? _getCheckSquare() {
     if (!_engine.in_check) return null;
-    final board = _engine.board;
-    for (int r = 0; r < 8; r++) {
-      for (int c = 0; c < 8; c++) {
-        final piece = board[r][c];
-        if (piece != null &&
-            piece.type == chess.PieceType.KING &&
-            piece.color == _engine.turn) {
-          return _squareName(r, c);
-        }
-      }
-    }
-    return null;
+    return _findKingSquare(_engine, _engine.turn);
   }
 
   void _loadRandomGame() {
@@ -108,10 +96,14 @@ class _GamesScreenState extends State<GamesScreen> {
 
     for (int i = 0; i < idx; i++) {
       try {
-        final mv = _engine.move(_currentGame!.moves[i].san);
-        if (mv != null) {
-          _lastMoveFrom = mv.from;
-          _lastMoveTo = mv.to;
+        final ok = _engine.move(_currentGame!.moves[i].san);
+        if (ok) {
+          final history = _engine.getHistory({'verbose': true});
+          if (history.isNotEmpty) {
+            final last = history.last;
+            _lastMoveFrom = last['from'] as String?;
+            _lastMoveTo = last['to'] as String?;
+          }
         }
       } catch (_) {}
     }
@@ -155,21 +147,12 @@ class _GamesScreenState extends State<GamesScreen> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     final game = _currentGame;
     if (game == null) {
-      return const Scaffold(
-        body: Center(
-          child: Text(
-            'No hay partidas disponibles',
-            style: TextStyle(color: Colors.white),
-          ),
-        ),
-      );
+      return const Scaffold(body: Center(child: Text('No hay partidas disponibles', style: TextStyle(color: Colors.white))));
     }
 
     final bottomIsWhite = game.winner == 'w' || game.winner != 'b';
@@ -184,57 +167,25 @@ class _GamesScreenState extends State<GamesScreen> {
               child: Row(
                 children: [
                   Expanded(
-                    child: Text(
-                      '${game.opening} (${game.eco})',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFFa5a49f),
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                    child: Text('${game.opening} (${game.eco})', style: const TextStyle(fontSize: 12, color: Color(0xFFa5a49f)), overflow: TextOverflow.ellipsis),
                   ),
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF7fa650),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      game.result,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF1b1b1b),
-                      ),
-                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(color: const Color(0xFF7fa650), borderRadius: BorderRadius.circular(4)),
+                    child: Text(game.result, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1b1b1b))),
                   ),
                   const SizedBox(width: 8),
                   IconButton(
-                    icon: Icon(
-                      _isMaximized ? Icons.maximize : Icons.minimize,
-                      color: const Color(0xFFa5a49f),
-                      size: 20,
-                    ),
-                    onPressed: () {
-                      setState(() {
-                        _isMaximized = !_isMaximized;
-                        _squareSize = _isMaximized ? 70 : 40;
-                      });
-                    },
+                    icon: Icon(_isMaximized ? Icons.maximize : Icons.minimize, color: const Color(0xFFa5a49f), size: 20),
+                    onPressed: () => setState(() { _isMaximized = !_isMaximized; _squareSize = _isMaximized ? 70 : 40; }),
                   ),
                 ],
               ),
             ),
-            _PlayerLine(
-              name: bottomIsWhite ? game.black : game.white,
-              elo: bottomIsWhite ? game.blackElo : game.whiteElo,
-              colorCode: bottomIsWhite ? 'b' : 'w',
-              squareSize: _squareSize,
-            ),
+            _PlayerLine(name: bottomIsWhite ? game.black : game.white, elo: bottomIsWhite ? game.blackElo : game.whiteElo, colorCode: bottomIsWhite ? 'b' : 'w', squareSize: _squareSize),
             Center(
               child: ChessBoard(
-                pieces: _getPieces(),
+                pieces: _buildPiecesMap(_engine),
                 orientation: bottomIsWhite ? 'white' : 'black',
                 lastMoveFrom: _lastMoveFrom,
                 lastMoveTo: _lastMoveTo,
@@ -242,34 +193,15 @@ class _GamesScreenState extends State<GamesScreen> {
                 squareSize: _squareSize,
               ),
             ),
-            _PlayerLine(
-              name: bottomIsWhite ? game.white : game.black,
-              elo: bottomIsWhite ? game.whiteElo : game.blackElo,
-              colorCode: bottomIsWhite ? 'w' : 'b',
-              squareSize: _squareSize,
-            ),
+            _PlayerLine(name: bottomIsWhite ? game.white : game.black, elo: bottomIsWhite ? game.whiteElo : game.blackElo, colorCode: bottomIsWhite ? 'w' : 'b', squareSize: _squareSize),
             Padding(
               padding: const EdgeInsets.only(top: 6),
-              child: Text(
-                'Jugada $_moveIndex/${game.moves.length}',
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Color(0xFFa5a49f),
-                ),
-              ),
+              child: Text('Jugada $_moveIndex/${game.moves.length}', style: const TextStyle(fontSize: 12, color: Color(0xFFa5a49f))),
             ),
             if (_getCalcLine().isNotEmpty)
               Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                child: Text(
-                  _getCalcLine(),
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFFd8b45c),
-                  ),
-                  textAlign: TextAlign.center,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: Text(_getCalcLine(), style: const TextStyle(fontSize: 11, color: Color(0xFFd8b45c)), textAlign: TextAlign.center),
               ),
             const Spacer(),
             Padding(
@@ -277,36 +209,13 @@ class _GamesScreenState extends State<GamesScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  _ControlButton(
-                    icon: Icons.skip_previous,
-                    onTap: () => _gotoMove(0),
-                    enabled: _moveIndex > 0,
-                  ),
-                  _ControlButton(
-                    icon: Icons.navigate_before,
-                    onTap: () => _gotoMove(_moveIndex - 1),
-                    enabled: _moveIndex > 0,
-                  ),
-                  _ControlButton(
-                    icon: _isPlaying ? Icons.pause : Icons.play_arrow,
-                    onTap: _isPlaying ? _stopAutoplay : _startAutoplay,
-                    active: _isPlaying,
-                  ),
-                  _ControlButton(
-                    icon: Icons.navigate_next,
-                    onTap: () => _gotoMove(_moveIndex + 1),
-                    enabled: _moveIndex < game.moves.length,
-                  ),
-                  _ControlButton(
-                    icon: Icons.skip_next,
-                    onTap: () => _gotoMove(game.moves.length),
-                    enabled: _moveIndex < game.moves.length,
-                  ),
+                  _ControlButton(icon: Icons.skip_previous, onTap: () => _gotoMove(0), enabled: _moveIndex > 0),
+                  _ControlButton(icon: Icons.navigate_before, onTap: () => _gotoMove(_moveIndex - 1), enabled: _moveIndex > 0),
+                  _ControlButton(icon: _isPlaying ? Icons.pause : Icons.play_arrow, onTap: _isPlaying ? _stopAutoplay : _startAutoplay, active: _isPlaying),
+                  _ControlButton(icon: Icons.navigate_next, onTap: () => _gotoMove(_moveIndex + 1), enabled: _moveIndex < game.moves.length),
+                  _ControlButton(icon: Icons.skip_next, onTap: () => _gotoMove(game.moves.length), enabled: _moveIndex < game.moves.length),
                   const SizedBox(width: 12),
-                  _ControlButton(
-                    icon: Icons.shuffle,
-                    onTap: _loadRandomGame,
-                  ),
+                  _ControlButton(icon: Icons.shuffle, onTap: _loadRandomGame),
                 ],
               ),
             ),
@@ -323,12 +232,7 @@ class _PlayerLine extends StatelessWidget {
   final String colorCode;
   final double squareSize;
 
-  const _PlayerLine({
-    required this.name,
-    this.elo,
-    required this.colorCode,
-    required this.squareSize,
-  });
+  const _PlayerLine({required this.name, this.elo, required this.colorCode, required this.squareSize});
 
   @override
   Widget build(BuildContext context) {
@@ -338,36 +242,16 @@ class _PlayerLine extends StatelessWidget {
       child: Row(
         children: [
           Container(
-            width: 10,
-            height: 10,
+            width: 10, height: 10,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: colorCode == 'w'
-                  ? const Color(0xFFF0D9B5)
-                  : const Color(0xFFB58863),
+              color: colorCode == 'w' ? const Color(0xFFF0D9B5) : const Color(0xFFB58863),
               border: Border.all(color: const Color(0xFFa5a49f)),
             ),
           ),
           const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              name,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          if (elo != null)
-            Text(
-              '($elo)',
-              style: const TextStyle(
-                fontSize: 12,
-                color: Color(0xFFa5a49f),
-              ),
-            ),
+          Expanded(child: Text(name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white), overflow: TextOverflow.ellipsis)),
+          if (elo != null) Text('($elo)', style: const TextStyle(fontSize: 12, color: Color(0xFFa5a49f))),
         ],
       ),
     );
@@ -380,12 +264,7 @@ class _ControlButton extends StatelessWidget {
   final bool enabled;
   final bool active;
 
-  const _ControlButton({
-    required this.icon,
-    this.onTap,
-    this.enabled = true,
-    this.active = false,
-  });
+  const _ControlButton({required this.icon, this.onTap, this.enabled = true, this.active = false});
 
   @override
   Widget build(BuildContext context) {
@@ -394,21 +273,12 @@ class _ControlButton extends StatelessWidget {
       child: GestureDetector(
         onTap: enabled ? onTap : null,
         child: Container(
-          width: 36,
-          height: 36,
+          width: 36, height: 36,
           decoration: BoxDecoration(
-            color: active
-                ? const Color(0xFF7fa650)
-                : const Color(0xFF302e2c),
+            color: active ? const Color(0xFF7fa650) : const Color(0xFF302e2c),
             borderRadius: BorderRadius.circular(6),
           ),
-          child: Icon(
-            icon,
-            size: 18,
-            color: enabled
-                ? (active ? const Color(0xFF1b1b1b) : Colors.white)
-                : const Color(0xFF555555),
-          ),
+          child: Icon(icon, size: 18, color: enabled ? (active ? const Color(0xFF1b1b1b) : Colors.white) : const Color(0xFF555555)),
         ),
       ),
     );
