@@ -1,0 +1,8 @@
+{
+  "appId": "com.gmchess.app",
+  "appName": "GMchess",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  }
+}
