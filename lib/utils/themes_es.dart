@@ -65,7 +65,8 @@ List<String> translateThemes(List<String>? themes) {
 }
 
 String? primaryPattern(List<String>? themes) {
-  final found = (themes ?? []).where((t) => MATE_PATTERN_KEYS.contains(t)).firstOrNull;
+  final matches = (themes ?? []).where((t) => MATE_PATTERN_KEYS.contains(t));
+  final found = matches.isEmpty ? null : matches.first;
   return found != null ? THEMES_ES[found] : null;
 }
 
