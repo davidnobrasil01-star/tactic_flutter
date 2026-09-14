@@ -2,7 +2,7 @@ name: Build APK
 
 on:
   push:
-    branches: [ master, main ]
+    branches: [ master, main, capacitor ]
   workflow_dispatch:
 
 jobs:
